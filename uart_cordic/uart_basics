@@ -1,0 +1,212 @@
+1. Model Construction Overview
+
+The primary logic implementation is contained in the following files.
+Vuart_top___024root.cpp
+Vuart_top___024root__Slow.cpp
+These files together implement the flattened netlist, state storage, and evaluation logic for the design.
+
+2. Class Hierarchy and Mapping
+
+2.1 Top Level Model Class
+The top level simulation model is represented by the following class.
+Vuart_top : public VerilatedModel
+This class represents the compiled Verilator model and serves as the user facing simulation interface.
+
+2.2 RTL Hierarchy Mapping
+The Verilator model maps directly to the RTL hierarchy as follows.
+Top level RTL module
+uart_top
+Mapped Cpp model
+Vuart_top
+Flattened netlist root
+Vuart_top___024root
+The Vuart_top___024root object represents a fully flattened version of the RTL design including all registers, wires, and combinational logic.
+
+3. Constructor Behavior and Netlist Creation
+
+3.1 Constructor Signature
+The constructor for the model is defined as follows.
+Vuart_top::Vuart_top(VerilatedContext* vcontextp_, const char* vcname_)
+This constructor is responsible for building the simulation model and registering it with the Verilator runtime.
+
+3.2 Base Class Initialization
+The constructor first initializes the base class.
+VerilatedModel{*vcontextp_}
+This performs the following actions.
+Registers the model instance with Verilator’s global simulation context.
+Associates the model with a simulation context that stores time state, tracing configuration, thread pool information, and a list of instantiated models.
+
+4. Symbol Table Creation and Role
+ 
+4.1 Symbol Table Allocation
+The constructor allocates the symbol table as follows.
+vlSymsp = new Vuart_top__Syms(contextp(), vcname_, this)
+The symbol table is the central registry for all design objects.
+
+4.2 Contents of the Symbol Table
+The symbol table contains the following elements.
+All signals in the design.
+All submodules and hierarchy scopes.
+A pointer to the flattened root object.
+Evaluation and scheduling metadata.
+
+4.3 Root Object Association
+Within the symbol table, the following object exists.
+TOP of type Vuart_top___024root
+This object is the flattened netlist root and contains all state and logic for the design.
+
+5. Signal Storage and External Port Binding
+
+5.1 Netlist Object Ownership
+All netlist objects live inside the root object referenced by the symbol table. Examples include the following.
+clk
+uart_rx_pin
+uart_tx_pin
+These are accessed internally as direct references to storage within Vuart_top___024root.
+
+5.2 External Signal Binding Semantics
+External ports in the Vuart_top class reference the internal netlist storage directly. There is no copying of signal values.
+For example, assigning a value as follows.
+top->clk = 1;
+Directly modifies the internal signal storage within the flattened netlist.
+
+6. Root Pointer and Model Registration
+
+6.1 Root Pointer Initialization
+The model stores a pointer to the flattened netlist root as follows.
+rootp = &(vlSymsp->TOP)
+The root object contains:
+All registers.
+All wires.
+All lookup table state.
+All internal scheduling flags.
+
+6.2 Model Registration
+The constructor completes by registering the model instance.
+contextp()->addModel(this);
+This registration is required for the following purposes.
+Supporting multiple models in a single simulation.
+Enabling waveform tracing.
+Allowing thread cloning and parallel simulation support.
+
+7. Destructor and Resource Cleanup
+
+7.1 Destructor Behavior
+The destructor for the model is defined as follows.
+Vuart_top::~Vuart_top()
+This destructor deletes the symbol table.
+delete vlSymsp;
+
+7.2 Cleanup Semantics
+Deleting the symbol table implicitly frees.
+The root netlist object.
+All signal storage.
+All internal pointers and metadata.
+No explicit logic destruction is required because the model consists only of allocated data structures.
+
+8. Evaluation Entry Point
+
+8.1 eval_step Function
+The primary simulation entry point is defined as follows.
+void Vuart_top::eval_step()
+This function is called once per simulation cycle and is conceptually equivalent to advancing simulation time by one delta cycle.
+
+9. Debug and Safety Checks
+
+9.1 Debug Assertions
+At the start of evaluation, debug assertions are executed.
+Vuart_top___024root___eval_debug_assertions(&(vlSymsp->TOP))
+These checks ensure the following.
+No unknown or high impedance values exist where forbidden.
+Signal widths are correct.
+Illegal transitions are detected.
+These checks are compiled only when debug mode is enabled.
+
+10. Deferred Deletion Mechanism
+
+10.1 Deferred Object Cleanup
+The following cleanup step is performed.
+vlSymsp->__Vm_deleter.deleteAll();
+This deletes deferred allocations used during simulation.
+
+10.2 Usage of Deferred Deletion
+Deferred deletion is used for.
+DPI objects.
+Tracing infrastructure.
+Temporary scheduling and evaluation objects.
+
+11. First Time Initialization Phase
+
+11.1 Initialization Guard
+The following condition ensures one time initialization.
+if (!vlSymsp->__Vm_didInit)
+This block executes exactly once per model instance.
+
+11.2 Static Evaluation Phase
+The static evaluation function is called.
+Vuart_top___024root___eval_static(...)
+This handles.
+Parameter evaluation.
+Generate block expansion.
+Constant expression resolution.
+
+11.3 Initial Block Execution
+The initial evaluation function is called.
+Vuart_top___024root___eval_initial(...)
+This executes all RTL initial blocks.
+
+11.4 Settle Phase
+The settle evaluation function is called.
+Vuart_top___024root___eval_settle(...)
+This stabilizes all combinational logic by repeatedly evaluating the directed acyclic graph until no signal changes occur.
+
+12. Main Netlist Evaluation
+
+12.1 Core Evaluation Function
+The main evaluation is performed by the following function.
+Vuart_top___024root___eval(&(vlSymsp->TOP))
+
+12.2 Evaluation Semantics
+During this phase.
+Combinational logic is evaluated.
+Sequential logic responds to clock edges.
+Lookup tables compute outputs.
+Registers update their stored state.
+Evaluation follows a topologically sorted order. There is no recursion. Execution is fully ordered and deterministic.
+//will write more about this in depth
+
+13. End of Evaluation Handling
+
+After evaluation completes, the following function is invoked.
+Verilated::endOfEval(...)
+This prepares the model for the next simulation step.
+
+14. Timing and Event Model
+
+14.1 Delay Handling
+The design does not support delays. The event query function is defined as follows.
+bool Vuart_top::eventsPending()
+This function always returns false. Attempting to use delays in the RTL results in a fatal error during simulation.
+
+15. Final Block Execution
+
+At the end of simulation, the following function is called.
+Vuart_top___024root___eval_final(...)
+This executes final blocks and performs assertion checks.
+
+16. Threading Model
+
+16.1 Thread Count
+The model reports its threading capability as follows.
+unsigned Vuart_top::threads() const { return 1; }
+This indicates that the design is currently single threaded.
+
+16.2 Multi Threading Support
+Verilator supports multi threaded simulation when.
+The simulation is built with threads enabled option.
+The design graph can be partitioned.
+No cross thread dependencies exist.
+The following hooks support multi threaded execution.
+prepareClone
+atClone
+These enable cloning of simulation contexts and parallel execution.
